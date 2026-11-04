@@ -1,0 +1,10 @@
+{
+  "name": "civicos-seva-evaluation",
+  "version": "1.0.0",
+  "private": true,
+  "description": "CivicOs citizen/officer prototype and a clearly labelled browser-local evaluation deployment",
+  "scripts": {
+    "build": "node scripts/build-demo.mjs",
+    "test:demo": "node demo/test-demo.cjs"
+  }
+}

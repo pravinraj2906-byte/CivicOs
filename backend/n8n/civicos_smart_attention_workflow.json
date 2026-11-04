@@ -1,0 +1,422 @@
+{
+  "name": "CivicOS Hackathon-Grade Civic Automation Orchestration Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "civicos-grievance",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "CivicOS Webhook Receiver",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [200, 400],
+      "webhookId": "civicos-grievance"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 1. Security & Idempotency Validation\nconst headers = $input.item.json.headers || {};\nconst body = $input.item.json.body || $input.item.json;\n\nconst providedSecret = headers['x-civicos-secret'] || headers['x-n8n-webhook-secret'] || '';\nconst expectedSecret = $env.N8N_WEBHOOK_SECRET || '';\n\nif (expectedSecret && providedSecret && providedSecret !== expectedSecret) {\n  return [{\n    json: {\n      error: 'Unauthorized: Invalid webhook secret',\n      authorized: false,\n      status_code: 401\n    }\n  }];\n}\n\nconst eventId = body.event_id || `EVT_${body.event || 'UNKNOWN'}_${body.grievance_id || 0}_${Date.now()}`;\n\nreturn [{\n  json: {\n    ...body,\n    event_id: eventId,\n    authorized: true,\n    received_at: new Date().toISOString()\n  }\n}];"
+      },
+      "name": "Security & Idempotency Validator",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [420, 400]
+    },
+    {
+      "parameters": {
+        "dataType": "string",
+        "value1": "={{ $json.event }}",
+        "rules": {
+          "rules": [
+            {
+              "value2": "GRIEVANCE_CREATED",
+              "outputKey": "created"
+            },
+            {
+              "value2": "GRIEVANCE_CRITICAL",
+              "outputKey": "critical"
+            },
+            {
+              "value2": "COMMUNITY_IMPACT_CHANGED",
+              "outputKey": "community_impact"
+            },
+            {
+              "value2": "GRIEVANCE_STATUS_CHANGED",
+              "outputKey": "status_changed"
+            },
+            {
+              "value2": "GRIEVANCE_RESOLVED",
+              "outputKey": "resolved"
+            }
+          ]
+        },
+        "fallbackOutput": 5
+      },
+      "name": "Event Router",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [660, 400]
+    },
+    {
+      "parameters": {
+        "dataType": "string",
+        "value1": "={{ $json.priority }}",
+        "rules": {
+          "rules": [
+            {
+              "value2": "CRITICAL",
+              "outputKey": "critical"
+            },
+            {
+              "value2": "HIGH",
+              "outputKey": "high"
+            }
+          ]
+        },
+        "fallbackOutput": 2
+      },
+      "name": "Priority & Urgency Analyzer",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [920, 160]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "attention_level",
+              "value": "CRITICAL",
+              "type": "string"
+            },
+            {
+              "name": "action_taken",
+              "value": "OFFICER_FAST_TRACK_DISPATCH",
+              "type": "string"
+            },
+            {
+              "name": "recommended_action",
+              "value": "Immediate field team dispatch & fast-track officer inspection",
+              "type": "string"
+            },
+            {
+              "name": "notification_channel",
+              "value": "OFFICER_EMERGENCY_DISPATCH",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Critical Escalation Action",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1160, 80]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "attention_level",
+              "value": "HIGH",
+              "type": "string"
+            },
+            {
+              "name": "action_taken",
+              "value": "HIGH_PRIORITY_FLAGGED",
+              "type": "string"
+            },
+            {
+              "name": "recommended_action",
+              "value": "Queue priority attention for departmental assignment within SLA window",
+              "type": "string"
+            },
+            {
+              "name": "notification_channel",
+              "value": "DEPARTMENT_OPERATIONS_QUEUE",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "High Priority Action",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1160, 180]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "attention_level",
+              "value": "STANDARD",
+              "type": "string"
+            },
+            {
+              "name": "action_taken",
+              "value": "LOGGED",
+              "type": "string"
+            },
+            {
+              "name": "recommended_action",
+              "value": "Standard triage and standard SLA queue processing",
+              "type": "string"
+            },
+            {
+              "name": "notification_channel",
+              "value": "STANDARD_QUEUE",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Standard Log Action",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1160, 280]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Community Impact Threshold Classifier\nconst count = $input.item.json.community_count || 0;\nlet classification = 'NO_CONFIRMATION';\nlet attention = 'STANDARD';\nlet action = 'COMMUNITY_TRACKED';\nlet recommended = 'Standard community impact monitoring';\n\nif (count >= 25) {\n  classification = 'MASS_IMPACT';\n  attention = 'CRITICAL';\n  action = 'CRITICAL_MASS_ESCALATION';\n  recommended = 'Severe community impact: 25+ citizens confirmed. Immediate municipal intervention required.';\n} else if (count >= 10) {\n  classification = 'WIDESPREAD_IMPACT';\n  attention = 'HIGH';\n  action = 'URGENT_DISTRICT_ALERT';\n  recommended = 'Widespread civic issue: 10+ citizens confirmed. Elevate department priority.';\n} else if (count >= 5) {\n  classification = 'HIGH_COMMUNITY_IMPACT';\n  attention = 'HIGH';\n  action = 'PRIORITY_QUEUE_BUMP';\n  recommended = 'High community confirmation: 5+ citizens confirmed.';\n} else if (count >= 1) {\n  classification = 'COMMUNITY_CONFIRMED';\n  attention = 'STANDARD';\n  action = 'COMMUNITY_CONFIRMED_LOG';\n  recommended = 'Community confirmation recorded in public feed.';\n}\n\nreturn [{\n  json: {\n    ...$input.item.json,\n    impact_classification: classification,\n    attention_level: attention,\n    action_taken: action,\n    recommended_action: recommended\n  }\n}];"
+      },
+      "name": "Community Impact Classifier",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [920, 360]
+    },
+    {
+      "parameters": {
+        "jsCode": "// SLA & Status Transition Engine\nconst item = $input.item.json;\nconst sla = item.sla_status || 'NORMAL';\nconst status = (item.status || '').toUpperCase();\nlet action = 'STATUS_TRACKED';\nlet attention = 'STANDARD';\nlet recommended = `Status updated to ${status}.`;\n\nif (sla === 'SLA_BREACH_WARNING') {\n  attention = 'CRITICAL';\n  action = 'SLA_BREACH_ALERT';\n  recommended = `⚠️ SLA Breach Warning: Grievance has been unresolved for ${item.age_hours || 0} hours. Officer fast-track required.`;\n} else if (sla === 'APPROACHING_SLA') {\n  attention = 'HIGH';\n  action = 'SLA_APPROACHING_REMINDER';\n  recommended = `⏳ Approaching SLA Deadline: Grievance pending for ${item.age_hours || 0} hours.`;\n}\n\nreturn [{\n  json: {\n    ...item,\n    attention_level: attention,\n    action_taken: action,\n    recommended_action: recommended\n  }\n}];"
+      },
+      "name": "SLA & Status Tracker",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [920, 480]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Resolution & Citizen Follow-Up Engine\nconst item = $input.item.json;\n\nreturn [{\n  json: {\n    ...item,\n    attention_level: 'STANDARD',\n    action_taken: 'RESOLUTION_AUTOMATION_COMPLETED',\n    recommended_action: 'Resolution logged in public feed. Citizen satisfaction survey prepared.',\n    followup_event: 'RESOLUTION_FOLLOWUP_PENDING',\n    followup_payload: {\n      tracking_id: item.tracking_id,\n      citizen_survey_url: `/feed/${item.grievance_id}`,\n      resolution_remarks: item.latest_remarks || 'Issue resolved by field officer',\n      resolved_at: new Date().toISOString()\n    }\n  }\n}];"
+      },
+      "name": "Resolution & Citizen Follow-Up Engine",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [920, 600]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Multi-Department Operational Routing & Audit Payload\nconst item = $input.item.json;\nconst dept = (item.department || 'General').toLowerCase();\n\nlet departmentQueue = 'General_Municipal_Operations';\nif (dept.includes('water') || dept.includes('sanitation')) {\n  departmentQueue = 'Water_Sanitation_Dispatch';\n} else if (dept.includes('road') || dept.includes('public_work') || dept.includes('works')) {\n  departmentQueue = 'Public_Works_Roads_Dispatch';\n} else if (dept.includes('electric') || dept.includes('power')) {\n  departmentQueue = 'Electricity_Board_Dispatch';\n} else if (dept.includes('waste') || dept.includes('garbage')) {\n  departmentQueue = 'Solid_Waste_Management_Dispatch';\n} else if (dept.includes('health')) {\n  departmentQueue = 'Public_Health_Sanitation_Dispatch';\n}\n\nconst auditRecord = {\n  automation: 'CivicOS Hackathon-Grade Smart Orchestrator v2.0',\n  event_id: item.event_id,\n  event: item.event,\n  tracking_id: item.tracking_id,\n  department: item.department,\n  department_queue: departmentQueue,\n  priority: item.priority,\n  urgency_score: item.urgency_score,\n  community_count: item.community_count || 0,\n  impact_classification: item.impact_classification || 'NO_CONFIRMATION',\n  sla_status: item.sla_status || 'NORMAL',\n  attention_level: item.attention_level || 'STANDARD',\n  action_taken: item.action_taken || 'PROCESSED',\n  recommended_action: item.recommended_action,\n  followup_event: item.followup_event || null,\n  timestamp: new Date().toISOString(),\n  source: 'n8n-CivicOS-Engine'\n};\n\nreturn [{\n  json: {\n    ...item,\n    department_queue: departmentQueue,\n    audit: auditRecord\n  }\n}];"
+      },
+      "name": "Multi-Department Router & Audit Engine",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1460, 360]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"status\": \"processed\",\n  \"event_id\": \"{{ $json.event_id }}\",\n  \"tracking_id\": \"{{ $json.tracking_id }}\",\n  \"event\": \"{{ $json.event }}\",\n  \"attention_level\": \"{{ $json.attention_level }}\",\n  \"action_taken\": \"{{ $json.action_taken }}\",\n  \"department_queue\": \"{{ $json.department_queue }}\",\n  \"impact_classification\": \"{{ $json.impact_classification }}\",\n  \"recommended_action\": \"{{ $json.recommended_action }}\",\n  \"followup_event\": \"{{ $json.followup_event || '' }}\",\n  \"timestamp\": \"{{ new Date().toISOString() }}\",\n  \"audit\": {{ JSON.stringify($json.audit) }}\n}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1720, 360]
+    }
+  ],
+  "connections": {
+    "CivicOS Webhook Receiver": {
+      "main": [
+        [
+          {
+            "node": "Security & Idempotency Validator",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Security & Idempotency Validator": {
+      "main": [
+        [
+          {
+            "node": "Event Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Event Router": {
+      "main": [
+        [
+          {
+            "node": "Priority & Urgency Analyzer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Critical Escalation Action",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Community Impact Classifier",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "SLA & Status Tracker",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Resolution & Citizen Follow-Up Engine",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Multi-Department Router & Audit Engine",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Priority & Urgency Analyzer": {
+      "main": [
+        [
+          {
+            "node": "Critical Escalation Action",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "High Priority Action",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Standard Log Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Critical Escalation Action": {
+      "main": [
+        [
+          {
+            "node": "Multi-Department Router & Audit Engine",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "High Priority Action": {
+      "main": [
+        [
+          {
+            "node": "Multi-Department Router & Audit Engine",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Standard Log Action": {
+      "main": [
+        [
+          {
+            "node": "Multi-Department Router & Audit Engine",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Community Impact Classifier": {
+      "main": [
+        [
+          {
+            "node": "Multi-Department Router & Audit Engine",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SLA & Status Tracker": {
+      "main": [
+        [
+          {
+            "node": "Multi-Department Router & Audit Engine",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolution & Citizen Follow-Up Engine": {
+      "main": [
+        [
+          {
+            "node": "Multi-Department Router & Audit Engine",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Multi-Department Router & Audit Engine": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "2.0.0",
+  "id": "civicos-hackathon-grade-orchestrator",
+  "tags": [
+    {
+      "name": "CivicOS"
+    },
+    {
+      "name": "Hackathon-Grade"
+    },
+    {
+      "name": "Smart-Orchestration"
+    }
+  ]
+}
